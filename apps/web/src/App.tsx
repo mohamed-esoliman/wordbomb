@@ -1,24 +1,32 @@
-import { useEffect, useState } from 'react';
-import { io } from 'socket.io-client';
+import { useMemo, useState } from 'react';
+import { AppContext } from './lib/appContext';
+import { loadProfile, saveProfile, type Profile } from './lib/profile';
+import { RoomClient } from './lib/roomClient';
+import { useRoute } from './lib/router';
+import { createSocket } from './lib/socket';
+import { Home } from './pages/Home';
+import { Room } from './pages/Room';
 
 export function App() {
-  const [status, setStatus] = useState('connecting');
+  const client = useMemo(() => new RoomClient(createSocket()), []);
+  const [profile, setProfileState] = useState<Profile>(() => loadProfile(window.localStorage));
+  const route = useRoute();
 
-  useEffect(() => {
-    const socket = io();
-    socket.on('connect', () => {
-      socket.emit('ping', (reply: string) => setStatus(`connected (${reply})`));
-    });
-    socket.on('disconnect', () => setStatus('disconnected'));
-    return () => {
-      socket.disconnect();
-    };
-  }, []);
+  const value = useMemo(
+    () => ({
+      client,
+      profile,
+      setProfile: (next: Profile) => {
+        saveProfile(window.localStorage, next);
+        setProfileState(next);
+      },
+    }),
+    [client, profile],
+  );
 
   return (
-    <main className="min-h-screen bg-slate-950 p-8 text-slate-100">
-      <h1 className="text-3xl font-bold">WordBomb</h1>
-      <p className="mt-2 text-slate-400">Socket: {status}</p>
-    </main>
+    <AppContext.Provider value={value}>
+      {route.page === 'home' ? <Home /> : <Room roomId={route.roomId} />}
+    </AppContext.Provider>
   );
 }
