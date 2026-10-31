@@ -124,6 +124,7 @@ export function Bomb({ prompt, fuse, explosion }: BombProps) {
             <circle r={3} fill="#ffffff" />
           </g>
           <text
+            data-testid="prompt"
             x="120"
             y="146"
             textAnchor="middle"
