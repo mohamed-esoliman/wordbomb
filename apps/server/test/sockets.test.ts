@@ -23,6 +23,15 @@ describe('rooms', () => {
     expect(JSON.stringify(state)).not.toContain(host.profile.token);
   });
 
+  test('joining the room you are already in is a harmless rejoin', async () => {
+    const { host, roomId } = await createAndJoin(app, ['Ana']);
+    const again = await host.join(roomId);
+    expect(again).toEqual({ ok: true, playerId: host.playerId });
+    const state = await host.waitForState((s) => s.members.length === 1);
+    expect(state.hostId).toBe(host.playerId);
+    expect(app.manager.get(roomId)?.members.size).toBe(1);
+  });
+
   test('lowercase codes work and unknown or invalid joins are rejected', async () => {
     const { roomId } = await createAndJoin(app, ['Ana']);
     const lower = await app.client('Ben').join(roomId.toLowerCase());

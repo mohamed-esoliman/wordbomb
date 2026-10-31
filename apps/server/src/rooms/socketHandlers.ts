@@ -89,13 +89,15 @@ export function registerSocketHandlers(
       room: Room,
       payload: { token: string; name: string; avatar: string },
     ): Ack<{ playerId: string }> => {
-      leaveCurrent();
+      const previousMemberId = socket.data.roomId === room.id ? socket.data.memberId : undefined;
+      if (!previousMemberId) leaveCurrent();
       socket.join(room.id);
       const result = room.join({ ...payload, socketId: socket.id });
       if ('error' in result) {
         socket.leave(room.id);
         return fail(result.error);
       }
+      if (previousMemberId && previousMemberId !== result.member.id) room.leave(previousMemberId);
       socket.data.roomId = room.id;
       socket.data.memberId = result.member.id;
       return { ok: true, playerId: result.member.id };
@@ -122,7 +124,7 @@ export function registerSocketHandlers(
         manager.removeIfEmpty(room.id);
         return ack(result);
       }
-      ack({ ok: true, roomId: room.id });
+      ack({ ok: true, roomId: room.id, playerId: result.playerId });
     });
 
     socket.on('room:join', (raw, ack) => {

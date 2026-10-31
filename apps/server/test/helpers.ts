@@ -101,8 +101,8 @@ export class TestClient {
   async create(roomName?: string): Promise<string> {
     const reply = await this.emitAck('room:create', { ...this.profile, roomName });
     if (!reply.ok) throw new Error(reply.error.code);
-    const state = await this.waitForState((s) => s.members.length >= 1);
-    this.playerId = state.hostId;
+    this.playerId = reply.playerId;
+    await this.waitForState((s) => s.members.length >= 1);
     return reply.roomId;
   }
 

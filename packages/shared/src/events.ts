@@ -140,7 +140,7 @@ export interface PublicRoomSummary {
 export interface ClientToServerEvents {
   'room:create': (
     payload: RoomCreatePayload,
-    ack: (reply: Ack<{ roomId: string }>) => void,
+    ack: (reply: Ack<{ roomId: string; playerId: string }>) => void,
   ) => void;
   'room:join': (payload: RoomJoinPayload, ack: (reply: Ack<{ playerId: string }>) => void) => void;
   'room:leave': () => void;
