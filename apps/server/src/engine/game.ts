@@ -1,6 +1,7 @@
 import {
   ALPHABET,
   type GameSettings,
+  type GameSnapshot,
   type GameStatus,
   type PromptDifficulty,
   type RejectReason,
@@ -144,6 +145,39 @@ export class Game {
     this.lightBomb();
     events.push(...this.advanceTurn());
     return events;
+  }
+
+  removePlayer(playerId: string): GameEvent[] {
+    if (this.status !== 'playing') return [];
+    const seat = this.seats.find((s) => s.playerId === playerId);
+    if (!seat || seat.eliminated) return [];
+    seat.lives = 0;
+    seat.eliminated = true;
+    seat.currentInput = '';
+    const events: GameEvent[] = [{ type: 'player_eliminated', playerId }];
+    const finished = this.finishIfDecided();
+    if (finished) return [...events, finished];
+    if (this.holderId === playerId) events.push(...this.advanceTurn());
+    return events;
+  }
+
+  toSnapshot(): GameSnapshot {
+    return {
+      status: this.status,
+      seats: this.seats.map((s) => ({
+        playerId: s.playerId,
+        lives: s.lives,
+        eliminated: s.eliminated,
+        usedLetters: [...s.usedLetters].sort(),
+        currentInput: s.currentInput,
+      })),
+      turnIndex: this.turnIndex,
+      prompt: this.prompt,
+      turnStartedAt: this.turnStartedAt,
+      bombLitAt: this.bomb.litAt,
+      words: [...this.words],
+      winnerId: this.winnerId,
+    };
   }
 
   private rejectReason(playerId: string, word: string): RejectReason | null {

@@ -265,3 +265,82 @@ describe('alphabet bonus', () => {
     expect(seat.usedLetters.size).toBe(26);
   });
 });
+
+describe('removePlayer', () => {
+  test('removing the holder eliminates them and passes the turn on the same bomb', () => {
+    const { game } = createHarness();
+    game.start();
+    const holder = game.holderId;
+    const explodeAt = game.explodeAt;
+    const events = game.removePlayer(holder);
+    expect(types(events)).toEqual(['player_eliminated', 'turn_started']);
+    expect(game.seats[0]!.eliminated).toBe(true);
+    expect(game.seats[0]!.lives).toBe(0);
+    expect(game.holderId).toBe(game.seats[1]!.playerId);
+    expect(game.explodeAt).toBe(explodeAt);
+  });
+
+  test('removing another player keeps the current turn', () => {
+    const { game } = createHarness();
+    game.start();
+    const holder = game.holderId;
+    const other = game.seats[2]!.playerId;
+    expect(game.removePlayer(other)).toEqual([{ type: 'player_eliminated', playerId: other }]);
+    expect(game.holderId).toBe(holder);
+    expect(game.alivePlayerIds()).toHaveLength(2);
+  });
+
+  test('removing the second to last player ends the game', () => {
+    const { game } = createHarness({ players: ['a', 'b'] });
+    game.start();
+    const leaver = game.seats[1]!.playerId;
+    const events = game.removePlayer(leaver);
+    expect(types(events)).toEqual(['player_eliminated', 'game_finished']);
+    expect(game.winnerId).toBe(game.seats[0]!.playerId);
+  });
+
+  test('ignores unknown, eliminated and post-game removals', () => {
+    const { game } = createHarness({ players: ['a', 'b'] });
+    game.start();
+    expect(game.removePlayer('nobody')).toEqual([]);
+    const leaver = game.seats[1]!.playerId;
+    game.removePlayer(leaver);
+    expect(game.removePlayer(leaver)).toEqual([]);
+    expect(game.removePlayer(game.seats[0]!.playerId)).toEqual([]);
+  });
+});
+
+describe('toSnapshot', () => {
+  test('exposes public state without the explosion time', () => {
+    const { game, clock } = createHarness({ players: ['a', 'b'], prompts: ['at'] });
+    game.start();
+    game.submitWord(game.holderId, 'scat');
+    const snapshot = game.toSnapshot();
+    expect(snapshot).toEqual({
+      status: 'playing',
+      seats: [
+        {
+          playerId: game.seats[0]!.playerId,
+          lives: 2,
+          eliminated: false,
+          usedLetters: ['a', 'c', 's', 't'],
+          currentInput: '',
+        },
+        {
+          playerId: game.seats[1]!.playerId,
+          lives: 2,
+          eliminated: false,
+          usedLetters: [],
+          currentInput: '',
+        },
+      ],
+      turnIndex: 1,
+      prompt: 'at',
+      turnStartedAt: clock.now,
+      bombLitAt: clock.now,
+      words: [{ playerId: game.seats[0]!.playerId, word: 'scat' }],
+      winnerId: null,
+    });
+    expect(JSON.stringify(snapshot)).not.toContain('explodeAt');
+  });
+});
