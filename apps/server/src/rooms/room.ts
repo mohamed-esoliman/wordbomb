@@ -7,11 +7,12 @@ import {
   type ErrorCode,
   type GameSettings,
   type PublicRoomSummary,
+  type RejectReason,
   type RoomSnapshot,
   type ServerToClientEvents,
   type Visibility,
 } from '@wordbomb/shared';
-import type { EngineDeps } from '../engine/game.ts';
+import { Game, type EngineDeps, type GameEvent } from '../engine/game.ts';
 import { pickColor } from './colors.ts';
 
 export const DISCONNECT_GRACE_MS = 30_000;
@@ -48,6 +49,11 @@ export interface JoinInput {
 
 export type JoinResult = { member: Member; rejoined: boolean } | { error: ErrorCode };
 
+export interface SubmitResult {
+  accepted: boolean;
+  reason?: RejectReason;
+}
+
 export class Room {
   readonly id: string;
   name: string;
@@ -56,9 +62,11 @@ export class Room {
   settings: GameSettings;
   readonly members = new Map<string, Member>();
   readonly chat: ChatMessage[] = [];
+  game: Game | null = null;
   gamesPlayed = 0;
   readonly createdAt: number;
   lastActivityAt: number;
+  private explosionTimer: NodeJS.Timeout | undefined;
   private readonly graceTimers = new Map<string, NodeJS.Timeout>();
   private readonly deps: RoomDeps;
 
@@ -75,9 +83,18 @@ export class Room {
     return this.members.size === 0;
   }
 
+  get isPlaying(): boolean {
+    return this.game?.status === 'playing';
+  }
+
   hasConnectedMembers(): boolean {
     for (const member of this.members.values()) if (member.connected) return true;
     return false;
+  }
+
+  isSeated(memberId: string): boolean {
+    if (!this.isPlaying) return false;
+    return this.game!.seats.some((s) => s.playerId === memberId && !s.eliminated);
   }
 
   join(input: JoinInput): JoinResult {
@@ -133,6 +150,7 @@ export class Room {
 
   updateSettings(memberId: string, settings: GameSettings): ErrorCode | null {
     if (this.hostId !== memberId) return 'not_host';
+    if (this.isPlaying) return 'game_in_progress';
     this.settings = { ...settings };
     this.broadcast();
     return null;
@@ -148,6 +166,7 @@ export class Room {
   updateProfile(memberId: string, name: string, avatar: string): ErrorCode | null {
     const member = this.members.get(memberId);
     if (!member) return 'not_in_room';
+    if (this.isSeated(memberId)) return 'game_in_progress';
     member.name = name;
     member.avatar = avatar;
     this.broadcast();
@@ -160,6 +179,43 @@ export class Room {
     member.wantsToPlay = seated;
     this.broadcast();
     return null;
+  }
+
+  startGame(memberId: string): ErrorCode | null {
+    if (this.hostId !== memberId) return 'not_host';
+    if (this.isPlaying) return 'game_in_progress';
+    const players = [...this.members.values()]
+      .filter((m) => m.connected && m.wantsToPlay)
+      .sort((a, b) => a.joinedAt - b.joinedAt)
+      .slice(0, this.settings.maxPlayers)
+      .map((m) => m.id);
+    if (players.length < 2) return 'not_enough_players';
+
+    this.game = new Game(this.settings, players, this.deps);
+    this.gamesPlayed += 1;
+    this.handleEngineEvents(this.game.start());
+    this.broadcast();
+    return null;
+  }
+
+  typing(memberId: string, text: string): void {
+    if (this.game?.setInput(memberId, text)) {
+      this.deps.emit(
+        'word:typing',
+        { playerId: memberId, text: this.game.holder.currentInput },
+        true,
+      );
+    }
+  }
+
+  submitWord(memberId: string, word: string): SubmitResult {
+    if (!this.game) return { accepted: false, reason: 'game_over' };
+    const events = this.game.submitWord(memberId, word);
+    this.handleEngineEvents(events);
+    const rejected = events.find((e) => e.type === 'word_rejected');
+    if (rejected) return { accepted: false, reason: rejected.reason };
+    this.broadcast();
+    return { accepted: true };
   }
 
   sendChat(memberId: string, text: string): ChatMessage | null {
@@ -197,7 +253,7 @@ export class Room {
         joinedAt: m.joinedAt,
       })),
       chat: [...this.chat],
-      game: null,
+      game: this.game?.toSnapshot() ?? null,
       gamesPlayed: this.gamesPlayed,
       serverNow: this.deps.now(),
     };
@@ -211,13 +267,15 @@ export class Room {
       name: this.name,
       players,
       maxPlayers: this.settings.maxPlayers,
-      status: 'waiting',
+      status: this.isPlaying ? 'playing' : 'waiting',
     };
   }
 
   dispose(): void {
     for (const timer of this.graceTimers.values()) clearTimeout(timer);
     this.graceTimers.clear();
+    clearTimeout(this.explosionTimer);
+    this.explosionTimer = undefined;
   }
 
   private findByToken(token: string): Member | undefined {
@@ -229,13 +287,18 @@ export class Room {
     this.graceTimers.delete(memberId);
     const member = this.members.get(memberId);
     if (!member || member.connected) return;
-    this.removeMember(memberId);
+    if (this.isSeated(memberId)) {
+      if (this.hostId === memberId) this.transferHost();
+    } else {
+      this.removeMember(memberId);
+    }
     this.broadcast();
   }
 
   private removeMember(memberId: string): void {
     this.clearGrace(memberId);
     this.members.delete(memberId);
+    if (this.isPlaying) this.handleEngineEvents(this.game!.removePlayer(memberId));
     if (this.hostId === memberId) this.transferHost();
   }
 
@@ -249,6 +312,62 @@ export class Room {
     const timer = this.graceTimers.get(memberId);
     if (timer) clearTimeout(timer);
     this.graceTimers.delete(memberId);
+  }
+
+  private handleEngineEvents(events: GameEvent[]): void {
+    for (const event of events) {
+      switch (event.type) {
+        case 'turn_started':
+          break;
+        case 'word_accepted':
+          this.deps.emit('word:accepted', {
+            playerId: event.playerId,
+            word: event.word,
+            newLetters: event.newLetters,
+          });
+          break;
+        case 'word_rejected':
+          this.deps.emit('word:rejected', {
+            playerId: event.playerId,
+            word: event.word,
+            reason: event.reason,
+          });
+          break;
+        case 'bomb_exploded':
+          this.deps.emit('bomb:exploded', { playerId: event.playerId, livesLeft: event.livesLeft });
+          break;
+        case 'life_gained':
+          this.deps.emit('player:lifeGained', { playerId: event.playerId, lives: event.lives });
+          break;
+        case 'player_eliminated':
+          this.deps.emit('player:eliminated', { playerId: event.playerId });
+          break;
+        case 'game_finished':
+          this.deps.emit('game:finished', { winnerId: event.winnerId });
+          this.onGameFinished();
+          break;
+      }
+    }
+    this.syncExplosionTimer();
+  }
+
+  private syncExplosionTimer(): void {
+    clearTimeout(this.explosionTimer);
+    this.explosionTimer = undefined;
+    if (!this.isPlaying) return;
+    const delay = Math.max(0, this.game!.explodeAt - this.deps.now());
+    this.explosionTimer = setTimeout(() => this.onExplosion(), delay);
+  }
+
+  private onExplosion(): void {
+    if (!this.game) return;
+    this.handleEngineEvents(this.game.explode());
+    this.broadcast();
+  }
+
+  private onGameFinished(): void {
+    const gone = [...this.members.values()].filter((m) => !m.connected).map((m) => m.id);
+    for (const id of gone) this.removeMember(id);
   }
 
   private broadcast(): void {
