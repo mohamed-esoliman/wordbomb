@@ -8,7 +8,11 @@ interface AvatarPickerProps {
 
 export function AvatarPicker({ value, onChange }: AvatarPickerProps) {
   return (
-    <div className="grid grid-cols-8 gap-2" role="radiogroup" aria-label="Avatar">
+    <div
+      className="grid grid-cols-4 gap-1.5 sm:grid-cols-8 sm:gap-2"
+      role="radiogroup"
+      aria-label="Avatar"
+    >
       {AVATAR_IDS.map((id, i) => (
         <button
           key={id}

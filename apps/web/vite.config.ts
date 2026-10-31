@@ -7,6 +7,9 @@ const serverUrl = process.env.SERVER_URL ?? 'http://localhost:3000';
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    chunkSizeWarningLimit: 600,
+  },
   server: {
     port: 5173,
     proxy: {
