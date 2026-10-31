@@ -66,8 +66,8 @@ export function WordInput({ prompt, onTyping, onSubmit }: WordInputProps) {
         spellCheck={false}
         enterKeyHint="send"
         aria-label="Your word"
-        placeholder="Type a word and press Enter"
-        className={`w-full rounded-2xl border-2 bg-bg/70 px-4 py-3 text-center font-mono text-xl tracking-wide uppercase focus:outline-none ${
+        placeholder="Type a word"
+        className={`w-full rounded-2xl border-2 bg-bg/70 px-4 py-3 text-center font-mono text-xl tracking-wide uppercase placeholder:normal-case placeholder:tracking-normal focus:outline-none ${
           error
             ? 'animate-shake border-danger'
             : highlighted

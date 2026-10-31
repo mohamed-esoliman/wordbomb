@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { RoomSnapshot } from '@wordbomb/shared';
+import { SoundControls } from './SoundControls';
 import { Button, Logo } from './ui';
 
 interface RoomHeaderProps {
@@ -52,6 +53,7 @@ export function RoomHeader({
         </Button>
       )}
       {children}
+      <SoundControls />
       <Button variant="ghost" onClick={onLeave} className="px-3 py-1.5 text-xs">
         Leave
       </Button>

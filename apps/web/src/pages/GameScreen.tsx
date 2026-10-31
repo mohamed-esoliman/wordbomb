@@ -1,13 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RoomSnapshot } from '@wordbomb/shared';
 import { AlphabetTracker } from '../components/AlphabetTracker';
 import { Bomb, useFuse } from '../components/Bomb';
 import { Chat } from '../components/Chat';
-import { PlayerCard } from '../components/PlayerCard';
+import { PlayerCard, type Flash } from '../components/PlayerCard';
+import { PlayerRing } from '../components/PlayerRing';
 import { RoomHeader } from '../components/RoomHeader';
 import { Button, Panel } from '../components/ui';
 import { WordInput } from '../components/WordInput';
 import { useApp } from '../lib/appContext';
+import { tickIntervalMs } from '../lib/sound';
 
 interface GameScreenProps {
   room: RoomSnapshot;
@@ -16,11 +18,20 @@ interface GameScreenProps {
   onLeave: () => void;
 }
 
+const FLASH_MS = 700;
+
 export function GameScreen({ room, myId, typing, onLeave }: GameScreenProps) {
-  const { client } = useApp();
+  const { client, sound } = useApp();
   const game = room.game!;
   const fuse = useFuse(game, room.settings, client.clock);
+  const fuseRef = useRef(fuse);
+  useEffect(() => {
+    fuseRef.current = fuse;
+  });
   const [chatOpen, setChatOpen] = useState(false);
+  const [flashes, setFlashes] = useState<Record<string, { kind: Flash; at: number }>>({});
+  const [explosion, setExplosion] = useState(0);
+
   const holder = game.seats[game.turnIndex]!;
   const holderMember = room.members.find((m) => m.id === holder.playerId);
   const mySeat = game.seats.find((s) => s.playerId === myId);
@@ -29,12 +40,91 @@ export function GameScreen({ room, myId, typing, onLeave }: GameScreenProps) {
   const recent = game.words.slice(-8).reverse();
   const memberOf = (id: string) => room.members.find((m) => m.id === id);
 
+  useEffect(() => {
+    const flash = (playerId: string, kind: Flash) => {
+      const at = Date.now();
+      setFlashes((prev) => ({ ...prev, [playerId]: { kind, at } }));
+      setTimeout(() => {
+        setFlashes((prev) =>
+          prev[playerId]?.at === at ? { ...prev, [playerId]: undefined! } : prev,
+        );
+      }, FLASH_MS);
+    };
+    const offs = [
+      client.on('word:accepted', ({ playerId }) => {
+        flash(playerId, 'accept');
+        sound.play('accept');
+      }),
+      client.on('word:rejected', ({ playerId }) => {
+        if (playerId === myId) sound.play('reject');
+      }),
+      client.on('bomb:exploded', ({ playerId }) => {
+        flash(playerId, 'hit');
+        setExplosion(Date.now());
+        sound.play('explode');
+      }),
+      client.on('player:lifeGained', ({ playerId }) => {
+        flash(playerId, 'gain');
+        sound.play('lifeGained');
+      }),
+      client.on('player:eliminated', ({ playerId }) => {
+        flash(playerId, 'out');
+        sound.play('eliminated');
+      }),
+    ];
+    return () => offs.forEach((off) => off());
+  }, [client, sound, myId]);
+
+  useEffect(() => {
+    if (myTurn) sound.play('turn');
+    document.title = myTurn ? 'Your turn! - WordBomb' : 'WordBomb';
+    return () => {
+      document.title = 'WordBomb';
+    };
+  }, [myTurn, game.turnStartedAt, sound]);
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const { intensity, safe } = fuseRef.current;
+      sound.play('tick', intensity);
+      timer = setTimeout(tick, tickIntervalMs(intensity, safe));
+    };
+    timer = setTimeout(tick, 400);
+    return () => clearTimeout(timer);
+  }, [sound]);
+
+  const center = (
+    <div className="flex flex-col items-center gap-3">
+      <Bomb prompt={game.prompt} fuse={fuse} explosion={explosion} />
+      {myTurn ? (
+        <WordInput
+          key={`${game.prompt}-${game.turnStartedAt}`}
+          prompt={game.prompt}
+          onTyping={(t) => client.typing(t)}
+          onSubmit={(w) => client.submit(w)}
+        />
+      ) : (
+        <div className="text-center">
+          <p className="text-sm text-muted">
+            {mySeat?.eliminated ? 'You are out. ' : mySeat ? '' : 'Spectating. '}
+            <span className="font-semibold text-text">{holderMember?.name ?? 'Someone'}</span> is
+            typing
+          </p>
+          <p className="mt-1 h-7 font-mono text-xl tracking-wide uppercase">
+            {typing[holder.playerId] ?? holder.currentInput}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col gap-4 px-4 py-4">
       <RoomHeader room={room} isHost={room.hostId === myId} onLeave={onLeave}>
         <Button
           variant="ghost"
-          className="px-3 py-1.5 text-xs"
+          className="px-3 py-1.5 text-xs lg:hidden"
           onClick={() => setChatOpen((o) => !o)}
         >
           Chat
@@ -43,7 +133,7 @@ export function GameScreen({ room, myId, typing, onLeave }: GameScreenProps) {
 
       <div className="grid flex-1 gap-4 lg:grid-cols-[1fr_18rem]">
         <section className="flex flex-col items-center gap-6">
-          <div className="flex flex-wrap justify-center gap-3 pt-7">
+          <PlayerRing count={game.seats.length} center={center}>
             {game.seats.map((seat) => (
               <PlayerCard
                 key={seat.playerId}
@@ -53,34 +143,10 @@ export function GameScreen({ room, myId, typing, onLeave }: GameScreenProps) {
                 me={seat.playerId === myId}
                 typing={typing[seat.playerId] ?? seat.currentInput}
                 maxLives={room.settings.maxLives}
+                flash={flashes[seat.playerId]}
               />
             ))}
-          </div>
-
-          <div className="flex flex-col items-center gap-4">
-            <Bomb prompt={game.prompt} fuse={fuse} />
-            {myTurn ? (
-              <WordInput
-                key={`${game.prompt}-${game.turnStartedAt}`}
-                prompt={game.prompt}
-                onTyping={(t) => client.typing(t)}
-                onSubmit={(w) => client.submit(w)}
-              />
-            ) : (
-              <div className="text-center">
-                <p className="text-sm text-muted">
-                  {mySeat?.eliminated ? 'You are out. ' : mySeat ? '' : 'Spectating. '}
-                  <span className="font-semibold text-text">
-                    {holderMember?.name ?? 'Someone'}
-                  </span>{' '}
-                  is thinking...
-                </p>
-                <p className="mt-1 h-7 font-mono text-xl tracking-wide uppercase">
-                  {typing[holder.playerId] ?? holder.currentInput}
-                </p>
-              </div>
-            )}
-          </div>
+          </PlayerRing>
 
           <div className="grid w-full gap-4 sm:grid-cols-2">
             <Panel>

@@ -10,9 +10,11 @@ import { GameScreen } from './GameScreen';
 import { Lobby } from './Lobby';
 
 export function Room({ roomId }: { roomId: string }) {
-  const { client, profile, setProfile } = useApp();
+  const { client, sound, profile, setProfile } = useApp();
   const state = useClientState(client);
   const hasName = isValidName(profile.name);
+
+  useEffect(() => client.on('game:finished', () => sound.play('win')), [client, sound]);
 
   useEffect(() => {
     if (!hasName) return;

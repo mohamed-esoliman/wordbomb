@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { ROOM_CODE_LENGTH } from '@wordbomb/shared';
 import { ProfileForm } from '../components/ProfileForm';
 import { PublicRooms } from '../components/PublicRooms';
+import { SoundControls } from '../components/SoundControls';
 import { Button, Logo, Panel, TextInput } from '../components/ui';
 import { useApp } from '../lib/appContext';
 import { isValidName } from '../lib/profile';
@@ -38,7 +39,10 @@ export function Home() {
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-5xl flex-col gap-8 px-4 py-10 sm:py-16">
-      <header className="text-center">
+      <header className="relative text-center">
+        <div className="absolute top-0 right-0">
+          <SoundControls />
+        </div>
         <Logo size="lg" />
         <p className="mt-3 text-balance text-muted">
           Type a word containing the letters before the bomb goes off. Pass it on. Last one standing
