@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
-import { Game } from './game.ts';
+import type { GameSettings } from '@wordbomb/shared';
+import { Game, type GameEvent } from './game.ts';
 import { createHarness, types } from './test-helpers.ts';
 
 describe('start', () => {
@@ -217,4 +218,50 @@ test('Game is constructible with real-looking settings', () => {
     deps,
   );
   expect(game.seats).toHaveLength(2);
+});
+
+describe('alphabet bonus', () => {
+  const pangram = ['the', 'quick', 'brown', 'fox', 'jumps', 'over', 'lazy', 'dog'];
+  const filler = pangram.map((_, i) => 'z'.repeat(3 + i));
+
+  function playPangram(settings: Partial<GameSettings>) {
+    const { game } = createHarness({
+      players: ['a', 'b'],
+      words: [...pangram, ...filler],
+      settings,
+    });
+    game.start();
+    const collector = game.holderId;
+    const events: GameEvent[] = [];
+    pangram.forEach((word, i) => {
+      events.push(...game.submitWord(collector, word));
+      game.submitWord(game.holderId, filler[i]!);
+    });
+    return { game, collector, events };
+  }
+
+  test('completing the alphabet grants a life and resets the tracker', () => {
+    const { game, collector, events } = playPangram({ startingLives: 2, maxLives: 3 });
+    const seat = game.seats.find((s) => s.playerId === collector)!;
+    expect(events.filter((e) => e.type === 'life_gained')).toEqual([
+      { type: 'life_gained', playerId: collector, lives: 3 },
+    ]);
+    expect(seat.lives).toBe(3);
+    expect(seat.usedLetters.size).toBe(0);
+  });
+
+  test('at max lives the tracker resets without a life', () => {
+    const { game, collector, events } = playPangram({ startingLives: 3, maxLives: 3 });
+    const seat = game.seats.find((s) => s.playerId === collector)!;
+    expect(events.some((e) => e.type === 'life_gained')).toBe(false);
+    expect(seat.lives).toBe(3);
+    expect(seat.usedLetters.size).toBe(0);
+  });
+
+  test('does nothing when disabled', () => {
+    const { game, collector, events } = playPangram({ alphabetBonus: false });
+    const seat = game.seats.find((s) => s.playerId === collector)!;
+    expect(events.some((e) => e.type === 'life_gained')).toBe(false);
+    expect(seat.usedLetters.size).toBe(26);
+  });
 });

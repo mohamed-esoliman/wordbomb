@@ -1,4 +1,10 @@
-import type { GameSettings, GameStatus, PromptDifficulty, RejectReason } from '@wordbomb/shared';
+import {
+  ALPHABET,
+  type GameSettings,
+  type GameStatus,
+  type PromptDifficulty,
+  type RejectReason,
+} from '@wordbomb/shared';
 
 export type Rng = () => number;
 
@@ -22,6 +28,7 @@ export type GameEvent =
   | { type: 'word_accepted'; playerId: string; word: string; newLetters: string[] }
   | { type: 'word_rejected'; playerId: string; word: string; reason: RejectReason }
   | { type: 'bomb_exploded'; playerId: string; livesLeft: number }
+  | { type: 'life_gained'; playerId: string; lives: number }
   | { type: 'player_eliminated'; playerId: string }
   | { type: 'game_finished'; winnerId: string | null };
 
@@ -109,6 +116,13 @@ export class Game {
     seat.currentInput = '';
 
     const events: GameEvent[] = [{ type: 'word_accepted', playerId, word, newLetters }];
+    if (this.settings.alphabetBonus && seat.usedLetters.size === ALPHABET.length) {
+      seat.usedLetters.clear();
+      if (seat.lives < this.settings.maxLives) {
+        seat.lives += 1;
+        events.push({ type: 'life_gained', playerId, lives: seat.lives });
+      }
+    }
     events.push(...this.advanceTurn());
     return events;
   }
