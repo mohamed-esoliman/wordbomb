@@ -67,9 +67,9 @@ export function Home() {
                 value={code}
                 onChange={(e) => setCode(e.target.value.toUpperCase())}
                 maxLength={ROOM_CODE_LENGTH}
-                placeholder="Room code"
+                placeholder="CODE"
                 aria-label="Room code"
-                className="font-mono uppercase tracking-[0.3em]"
+                className="font-mono uppercase tracking-[0.2em]"
                 autoComplete="off"
               />
               <Button type="submit" variant="secondary" disabled={busy || !nameOk}>

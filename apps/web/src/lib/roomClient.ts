@@ -1,12 +1,13 @@
 import { useSyncExternalStore } from 'react';
-import type {
-  Ack,
-  ErrorPayload,
-  GameSettings,
-  RejectReason,
-  RoomSnapshot,
-  ServerToClientEvents,
-  Visibility,
+import {
+  CHAT_HISTORY_LIMIT,
+  type Ack,
+  type ErrorPayload,
+  type GameSettings,
+  type RejectReason,
+  type RoomSnapshot,
+  type ServerToClientEvents,
+  type Visibility,
 } from '@wordbomb/shared';
 import { ServerClock } from './clock.ts';
 import type { Profile } from './profile.ts';
@@ -48,6 +49,7 @@ export class RoomClient {
   private readonly handlers = new Map<EventName, Set<(payload: never) => void>>();
   private profile: Profile | null = null;
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
+  private leaveTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly socket: ClientSocket) {
     socket.on('connect', () => {
@@ -91,12 +93,18 @@ export class RoomClient {
       this.showNotice(error);
       this.dispatch('room:error', error);
     });
+    socket.on('chat:message', (message) => {
+      if (this.state.room) {
+        const chat = [...this.state.room.chat, message].slice(-CHAT_HISTORY_LIMIT);
+        this.update({ room: { ...this.state.room, chat } });
+      }
+      this.dispatch('chat:message', message);
+    });
     for (const event of [
       'word:accepted',
       'bomb:exploded',
       'player:lifeGained',
       'player:eliminated',
-      'chat:message',
     ] as const) {
       socket.on(event, ((payload: never) => this.dispatch(event, payload)) as Handler<
         typeof event
@@ -125,19 +133,28 @@ export class RoomClient {
     return this.state.myId;
   }
 
-  create(profile: Profile, roomName?: string): Promise<Ack<{ roomId: string }>> {
+  create(profile: Profile, roomName?: string): Promise<Ack<{ roomId: string; playerId: string }>> {
     this.profile = profile;
     this.connect();
     return new Promise((resolve) => {
       this.socket.emit('room:create', { ...profile, roomName }, (reply) => {
-        if (reply.ok) this.update({ roomId: reply.roomId, joinError: null, finished: null });
+        if (reply.ok) {
+          this.update({
+            roomId: reply.roomId,
+            myId: reply.playerId,
+            joinError: null,
+            finished: null,
+          });
+        }
         resolve(reply);
       });
     });
   }
 
   join(roomId: string, profile: Profile): void {
+    clearTimeout(this.leaveTimer);
     this.profile = profile;
+    if (this.state.roomId === roomId && this.state.myId && this.socket.connected) return;
     if (this.state.roomId !== roomId) {
       this.update({ roomId, room: null, myId: null, joinError: null, finished: null, typing: {} });
     }
@@ -146,8 +163,14 @@ export class RoomClient {
   }
 
   leave(): void {
+    clearTimeout(this.leaveTimer);
     if (this.state.roomId) this.socket.emit('room:leave');
     this.update({ ...initialState, connection: this.socket.connected ? 'connected' : 'idle' });
+  }
+
+  scheduleLeave(): void {
+    clearTimeout(this.leaveTimer);
+    this.leaveTimer = setTimeout(() => this.leave(), 0);
   }
 
   updateSettings(settings: GameSettings): void {
