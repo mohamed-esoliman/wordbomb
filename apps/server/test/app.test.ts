@@ -20,7 +20,7 @@ afterAll(async () => {
 test('health endpoint responds', async () => {
   const res = await fetch(`${url}/healthz`);
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual({ ok: true, protocol: 1 });
+  expect(await res.json()).toEqual({ ok: true });
 });
 
 test('socket round-trips a ping', async () => {
