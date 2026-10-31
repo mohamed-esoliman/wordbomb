@@ -1,0 +1,34 @@
+# Words removed from the dictionary at load time, one per line.
+# Entries that are not in the dictionary are ignored.
+nigger
+niggers
+nigga
+niggas
+nigra
+nigras
+kike
+kikes
+spic
+spics
+spick
+spicks
+chink
+chinks
+wetback
+wetbacks
+gook
+gooks
+faggot
+faggots
+faggoty
+dago
+dagos
+dagoes
+wop
+wops
+raghead
+ragheads
+darky
+darkies
+darkey
+darkeys
