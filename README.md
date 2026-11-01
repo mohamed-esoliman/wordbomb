@@ -2,6 +2,8 @@
 
 WordBomb is a browser-based multiplayer word game in the style of BombParty. Players in a room pass a bomb around. Whoever holds it has to type a dictionary word containing the current prompt, such as `ING`, before the fuse runs out. The fuse length is hidden and random and keeps burning as the bomb is passed, so every turn is a hot potato. No accounts, no install: open a link, pick a name, play. The server owns every rule and timer; clients send intents and render snapshots.
 
+Play it at https://wordbomb-4n1h.onrender.com. It runs on a free Render instance, so the first load after a quiet spell can take about a minute while the server wakes up.
+
 ## Features
 
 - Rooms with a 6-character code and shareable link, private by default with an optional public listing on the home page
@@ -57,6 +59,8 @@ pnpm dev
 
 ## Deployment
 
+The live instance is a Docker web service on Render's free tier built from this repo, with `/healthz` as the health check and no environment variables beyond the `PORT` Render sets. Free instances sleep after 15 minutes without traffic and lose their in-memory rooms, so a room that was open when the server went to sleep is gone when it wakes.
+
 The Dockerfile builds the client and runs the server with production dependencies only:
 
 ```sh
@@ -64,14 +68,14 @@ docker build -t wordbomb .
 docker run -p 3000:3000 wordbomb
 ```
 
-`fly.toml` is set up for a single always-on machine on Fly.io, which the in-memory rooms require. With `flyctl` installed and logged in:
+`fly.toml` is set up for a single always-on machine on Fly.io, which keeps rooms alive between visits. With `flyctl` installed and logged in:
 
 ```sh
 fly launch --copy-config --no-deploy
 fly deploy
 ```
 
-Rooms live in memory in a single process, so run exactly one instance. The server trusts `x-forwarded-for` for per-IP rate limits, which is what Fly's proxy sets.
+Rooms live in memory in a single process, so run exactly one instance. The server reads `x-forwarded-for` for per-IP rate limits, which Render and Fly both set.
 
 ## Game rules
 
@@ -84,4 +88,4 @@ Rooms live in memory in a single process, so run exactly one instance. The serve
 
 ## License
 
-MIT
+[MIT](LICENSE)
